@@ -24,7 +24,7 @@ class TorchModel(nn.Module):
     def __init__(self, input_size,hidden_size):
         super(TorchModel, self).__init__()
         self.linear1 = nn.Linear(input_size, hidden_size)  # 线性层1
-        self.activation = torch.sigmoid  # nn.Sigmoid() sigmoid归一化函数
+        self.activation = nn.functional.gelu  # nn.Sigmoid() sigmoid归一化函数
         self.linear2 = nn.Linear(hidden_size, input_size)  # 线性层2，输出维度和输入相同
         
         self.loss = nn.functional.cross_entropy  # loss函数采用交叉熵
@@ -34,10 +34,12 @@ class TorchModel(nn.Module):
         x = self.linear1(x)  # (batch_size, input_size) -> (batch_size, hidden_size)
         x = self.activation(x)  # (batch_size, hidden_size) -> (batch_size, hidden_size)
         x = self.linear2(x) # (batch_size, hidden_size) -> (batch_size, input_size)
-        y_pred = torch.nn.functional.softmax(x,dim=1)
+        
         if y is not None:
+            y_pred = x
             return self.loss(y_pred, y)  # 预测值和真实值计算损失
         else:
+            y_pred = nn.functional.softmax(x,dim=1)
             return y_pred  # 输出预测结果
 
 
