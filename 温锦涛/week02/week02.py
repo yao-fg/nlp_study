@@ -1,54 +1,44 @@
 # coding:utf8
 
-# 解决 OpenMP 库冲突问题
-# import os
-# os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
-
+import os
 import torch
 import torch.nn as nn
 import numpy as np
-import random
-import json
 import matplotlib.pyplot as plt
 
 """
 
 基于pytorch框架编写模型训练
 实现一个自行构造的找规律(机器学习)任务
-规律：x是一个5维向量，第几维数值最大，则为第几类（类别编号从0开始）
 
 """
 
+current_file_path = os.path.dirname(os.path.abspath(__file__))
 
 class TorchModel(nn.Module):
-    def __init__(self, input_size,hidden_size):
+    def __init__(self, input_size, output_size):
         super(TorchModel, self).__init__()
-        self.linear1 = nn.Linear(input_size, hidden_size)  # 线性层1
-        self.activation = nn.functional.gelu  # nn.Sigmoid() sigmoid归一化函数
-        self.linear2 = nn.Linear(hidden_size, input_size)  # 线性层2，输出维度和输入相同
-        
-        self.loss = nn.functional.cross_entropy  # loss函数采用交叉熵
- 
+        self.linear = nn.Linear(input_size, output_size)  # 线性层
+        self.activation = torch.sigmoid  # nn.Sigmoid() sigmoid归一化函数
+        self.loss = nn.functional.mse_loss  # loss函数采用均方差损失
+
     # 当输入真实标签，返回loss值；无真实标签，返回预测值
     def forward(self, x, y=None):
-        x = self.linear1(x)  # (batch_size, input_size) -> (batch_size, hidden_size)
-        x = self.activation(x)  # (batch_size, hidden_size) -> (batch_size, hidden_size)
-        x = self.linear2(x) # (batch_size, hidden_size) -> (batch_size, input_size)
-        
+        x = self.linear(x)  # (batch_size, input_size) -> (batch_size, 1)
+        y_pred = self.activation(x)  # (batch_size, 1) -> (batch_size, 1)
         if y is not None:
-            y_pred = x
             return self.loss(y_pred, y)  # 预测值和真实值计算损失
         else:
-            y_pred = nn.functional.softmax(x,dim=1)
             return y_pred  # 输出预测结果
 
 
 # 生成一个样本, 样本的生成方法，代表了我们要学习的规律
-# 随机生成一个5维向量，第几维数值最大，则为第几类
+# 随机生成一个5维向量，如果第一个值大于第五个值，认为是正样本，反之为负样本
 def build_sample():
     x = np.random.random(5)
-    return x, np.argmax(x)
-
+    max_idx = np.argmax(x)
+    y = [1 if i == max_idx else 0 for i in range(5)]
+    return x, y
 
 
 # 随机生成一批样本
@@ -60,9 +50,7 @@ def build_dataset(total_sample_num):
         x, y = build_sample()
         X.append(x)
         Y.append(y)
-    # print(X)
-    # print(Y)
-    return torch.FloatTensor(X), torch.LongTensor(Y)
+    return torch.FloatTensor(X), torch.FloatTensor(Y)
 
 # 测试代码
 # 用来测试每轮模型的准确率
@@ -70,30 +58,32 @@ def evaluate(model):
     model.eval()
     test_sample_num = 100
     x, y = build_dataset(test_sample_num)
-    print(f"本次预测集中共有{len(y)}个正样本")
+    
     correct, wrong = 0, 0
     with torch.no_grad():
         y_pred = model(x)  # 模型预测 model.forward(x)
+        # print(y_pred)
         for y_p, y_t in zip(y_pred, y):  # 与真实标签进行对比
-            if torch.argmax(y_p).item() == y_t:
+            max_idx_y = np.argmax(y_p)
+            max_idx_t = np.argmax(y_t)
+            if max_idx_y == max_idx_t:
                 correct += 1
             else:
                 wrong += 1
-            
     print("正确预测个数：%d, 正确率：%f" % (correct, correct / (correct + wrong)))
     return correct / (correct + wrong)
 
 
 def main():
     # 配置参数
-    epoch_num = 200  # 训练轮数
-    batch_size = 500  # 每次训练样本个数
-    train_sample = 10000  # 每轮训练总共训练的样本总数
+    epoch_num = 20  # 训练轮数
+    batch_size = 20  # 每次训练样本个数
+    train_sample = 5000  # 每轮训练总共训练的样本总数
     input_size = 5  # 输入向量维度
-    hidden_size = 20  # 隐藏层向量维度
-    learning_rate = 0.001  # 学习率
+    output_size = 5  # 输出向量维度
+    learning_rate = 0.01  # 学习率
     # 建立模型
-    model = TorchModel(input_size, hidden_size)
+    model = TorchModel(input_size, output_size)
     # 选择优化器
     optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
     log = []
@@ -116,7 +106,7 @@ def main():
         acc = evaluate(model)  # 测试本轮模型结果
         log.append([acc, float(np.mean(watch_loss))])
     # 保存模型
-    torch.save(model.state_dict(), "model.bin")
+    torch.save(model.state_dict(), os.path.join(current_file_path, "five_model.bin"))
     # 画图
     print(log)
     plt.plot(range(len(log)), [l[0] for l in log], label="acc")  # 画acc曲线
@@ -129,24 +119,23 @@ def main():
 # 使用训练好的模型做预测
 def predict(model_path, input_vec):
     input_size = 5
-    hidden_size = 20  # 隐藏层向量维度
-    model = TorchModel(input_size, hidden_size)
+    output_size = 5
+    model = TorchModel(input_size, output_size)
     model.load_state_dict(torch.load(model_path))  # 加载训练好的权重
     print(model.state_dict())
 
     model.eval()  # 测试模式
     with torch.no_grad():  # 不计算梯度
-        result = model(torch.FloatTensor(input_vec))  # 模型预测
+        result = model.forward(torch.FloatTensor(input_vec))  # 模型预测
     for vec, res in zip(input_vec, result):
-        index = torch.argmax(res).item()
-        print("输入：%s, 预测类别：%d, 概率值：%f" % (vec, index, res[index].float()))  # 打印结果
+        print("正确类别：%d, 输入：%s, 预测类别：%d, 概率值：%s" % (np.argmax(vec),vec, np.argmax(res), res))  # 打印结果
 
 
 if __name__ == "__main__":
-    main()
-    test_vec = [[0.88889086,0.15229675,0.31082123,0.03504317,0.88920843],
-                [0.94963533,0.5524256,0.95758807,0.95520434,0.84890681],
-                [0.90797868,0.67482528,0.13625847,0.34675372,0.19871392],
-                [0.99349776,0.59416669,0.92579291,0.41567412,0.1358894],
-                [0.99349776,0.98349776,0.92579291,0.99349776,0.99649776]]
-    predict("model.bin", test_vec)
+    # main()
+    # test_vec = [[0.88889086,0.15229675,0.31082123,0.03504317,0.88920843],
+    #             [0.94963533,0.5524256,0.95758807,0.95520434,0.84890681],
+    #             [0.90797868,0.67482528,0.13625847,0.34675372,0.19871392],
+    #             [0.99349776,0.59416669,0.92579291,0.41567412,0.1358894]]
+    test_vec = [np.random.random(5) for i in range(10)]
+    predict(os.path.join(current_file_path, "five_model.bin"), test_vec)
